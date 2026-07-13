@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Сгенерированные данные (восстанавливаются запуском generate_data.py / clean_data.py)
+data/sales_clean.csv
+data/dim_date.csv
+
+# Логи и служебное
+server.log
+*.log
+.DS_Store
+.ipynb_checkpoints/
