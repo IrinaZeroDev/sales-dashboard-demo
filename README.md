@@ -1,5 +1,11 @@
 # Интерактивный дашборд продаж
 
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![pandas](https://img.shields.io/badge/pandas-data%20processing-150458.svg)](https://pandas.pydata.org/)
+[![Plotly Dash](https://img.shields.io/badge/Plotly-Dash-0d6efd.svg)](https://dash.plotly.com/)
+[![Power BI](https://img.shields.io/badge/Power%20BI-ready-F2C811.svg)](https://powerbi.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 Веб-прототип BI-дашборда для менеджеров по продажам. Полный пайплайн на Python:
 генерация данных → очистка и предобработка → интерактивная визуализация с динамическими
 фильтрами. Прототип построен на Plotly Dash и служит для быстрого согласования состава
