@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Дашборд продаж — демо</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, -apple-system, Segoe UI, Arial, sans-serif;
+         background:#f7f8fa; color:#1f2933; }
+  .wrap { display:flex; gap:16px; padding:20px; align-items:flex-start; }
+  .sidebar { width:240px; flex:0 0 240px; background:#fff; border:1px solid #eef0f3;
+             border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .sidebar h3 { margin:0 0 12px; font-size:15px; }
+  .field { margin-top:14px; }
+  .field > label { display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px; }
+  .checks { max-height:140px; overflow:auto; border:1px solid #e5e7eb; border-radius:6px; padding:6px; }
+  .checks label { display:block; font-size:12px; padding:2px 0; cursor:pointer; }
+  input[type=date] { width:100%; padding:5px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .btns button, .reset { font-size:11px; padding:5px 8px; border:1px solid #d1d5db;
+        border-radius:6px; background:#fff; cursor:pointer; }
+  .btns button:hover, .reset:hover { background:#f3f4f6; }
+  .radio { font-size:12px; }
+  .radio label { margin-right:10px; }
+  .main { flex:1; min-width:0; }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:12px; }
+  .kpi { background:#fff; border:1px solid #eef0f3; border-radius:12px; padding:16px 18px;
+         box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .kpi .t { color:#6b7280; font-size:13px; margin-bottom:6px; }
+  .kpi .v { font-size:26px; font-weight:700; }
+  .kpi .d { margin-top:6px; font-size:13px; font-weight:600; }
+  .up { color:#16a34a; } .down { color:#dc2626; } .na { color:#9ca3af; }
+  .chart { background:#fff; border:1px solid #eef0f3; border-radius:12px; padding:8px;
+           box-shadow:0 1px 3px rgba(0,0,0,.05); margin-bottom:12px; }
+  h1 { font-size:22px; margin:0; }
+  .sub { color:#6b7280; font-size:13px; }
+  .loading { padding:40px; text-align:center; color:#6b7280; }
+</style>
+</head>
+<body>
+<div style="padding:20px 20px 0;">
+  <h1>Дашборд продаж</h1>
+  <div class="sub" id="rangeLabel">Загрузка…</div>
+</div>
+<div class="wrap">
+  <script src="data.js"></script>
+  <div class="sidebar">
+    <h3>Фильтры</h3>
+    <div class="field">
+      <label>Период</label>
+      <input type="date" id="dateFrom">
+      <input type="date" id="dateTo" style="margin-top:4px;">
+      <div class="btns">
+        <button data-preset="month">Посл. месяц</button>
+        <button data-preset="quarter">Посл. квартал</button>
+        <button data-preset="year">Весь год</button>
+      </div>
+    </div>
+    <div class="field"><label>Регион</label><div class="checks" id="regions"></div></div>
+    <div class="field"><label>Категория продукта</label><div class="checks" id="categories"></div></div>
+    <div class="field"><label>Гранулярность тренда</label>
+      <div class="radio" id="gran">
+        <label><input type="radio" name="gran" value="День">День</label>
+        <label><input type="radio" name="gran" value="Неделя">Неделя</label>
+        <label><input type="radio" name="gran" value="Месяц" checked>Месяц</label>
+      </div>
+    </div>
+    <div class="field"><label>Учитывать аномалии</label>
+      <div class="radio" id="outl">
+        <label><input type="radio" name="outl" value="yes" checked>Да</label>
+        <label><input type="radio" name="outl" value="no">Нет (только норма)</label>
+      </div>
+    </div>
+    <div class="field"><button class="reset" id="reset">Сбросить фильтры</button></div>
+  </div>
+  <div class="main">
+    <div class="kpis" id="kpis"><div class="loading">Загрузка данных…</div></div>
+    <div class="chart" id="trend" style="height:340px;"></div>
+    <div class="chart" id="region" style="height:360px;"></div>
+    <div class="chart" id="category" style="height:340px;"></div>
+    <div class="chart" id="heatmap" style="height:380px;"></div>
+  </div>
+</div>
+
+<script>
+const ACCENT="#2563eb", RED="#dc2626";
+const CAT_SHORT={"Электроника":"Электроника","Бытовая техника":"Быт. техника",
+  "Компьютеры и комплектующие":"Компьютеры","Аксессуары":"Аксессуары","Не определено":"Н/о"};
+
+const RAW = window.SALES_DATA || [];
+const DATA = RAW.map(r => ({
+  order_id:r.order_id, date:new Date(r.order_date+"T00:00:00"),
+  region:r.region, category:r.category, quantity:+r.quantity, revenue:+r.revenue,
+  is_outlier:+r.is_outlier
+}));
+DATA.sort((a,b)=>a.date-b.date);
+const MIN_D = DATA[0].date, MAX_D = DATA[DATA.length-1].date;
+document.getElementById("rangeLabel").textContent =
+  "Период данных: "+fmtD(MIN_D)+" — "+fmtD(MAX_D);
+
+const REGIONS = [...new Set(DATA.map(r=>r.region))].sort();
+const CATEGORIES = [...new Set(DATA.map(r=>r.category))].sort();
+
+const F = { from:null, to:null, regions:new Set(), categories:new Set(),
+            gran:"Месяц", outliers:"yes" };
+
+function fmtMoney(x){
+  x=Math.round(x);
+  if(x>=1e9) return (x/1e9).toFixed(2)+" млрд ₽";
+  if(x>=1e6) return (x/1e6).toFixed(2)+" млн ₽";
+  if(x>=1e3) return (x/1e3).toFixed(0)+" тыс ₽";
+  return x.toLocaleString("ru-RU")+" ₽";
+}
+function fmtInt(x){ return Math.round(x).toLocaleString("ru-RU"); }
+function fmtD(d){ return d.toLocaleDateString("ru-RU"); }
+function fmtShort(x){ return Math.round(x).toLocaleString("ru-RU"); }
+
+function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function mondayOf(d){ const x=startOfDay(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x; }
+function firstOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+function bucketOf(d,g){ if(g==="День")return startOfDay(d); if(g==="Неделя")return mondayOf(d); return firstOfMonth(d); }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function fmtISO(d){ return d.toISOString().slice(0,10); }
+
+function inSet(s,v){ return s.size===0 || s.has(v); }
+function filterRows(from,to){
+  return DATA.filter(r =>
+    r.date>=from && r.date<=to &&
+    inSet(F.regions, r.region) && inSet(F.categories, r.category) &&
+    (F.outliers==="yes" || r.is_outlier===0)
+  );
+}
+
+function renderKPIs(cur, prev){
+  const rev=cur.reduce((s,r)=>s+r.revenue,0);
+  const ord=new Set(cur.map(r=>r.order_id)).size;
+  const chk= ord? rev/ord : 0;
+  const revp=prev.reduce((s,r)=>s+r.revenue,0);
+  const ordp=new Set(prev.map(r=>r.order_id)).size;
+  const chkp= ordp? revp/ordp : 0;
+  const d=(c,p)=> p? (c-p)/p*100 : null;
+  const card=(t,v,delta)=>{
+    let ds,cls;
+    if(delta===null){ ds="—"; cls="na"; }
+    else { cls=delta>=0?"up":"down"; ds=(delta>=0?"▲ ":"▼ ")+delta.toFixed(1)+"% к пред. периоду"; }
+    return `<div class="kpi"><div class="t">${t}</div><div class="v">${v}</div><div class="d ${cls}">${ds}</div></div>`;
+  };
+  document.getElementById("kpis").innerHTML =
+    card("Объём продаж", fmtMoney(rev), d(rev,revp)) +
+    card("Транзакции", fmtInt(ord), d(ord,ordp)) +
+    card("Средний чек", fmtMoney(chk), d(chk,chkp));
+}
+
+const layout=(title)=>({title,template:"plotly_white",margin:{t:45,b:30,l:50,r:20},font:{size:12}});
+
+function drawTrend(rows){
+  const m={};
+  rows.forEach(r=>{ const k=bucketOf(r.date,F.gran).getTime(); m[k]=(m[k]||0)+r.revenue; });
+  const xs=Object.keys(m).map(Number).sort((a,b)=>a-b);
+  const ys=xs.map(k=>m[k]);
+  let traces=[{x:xs.map(k=>new Date(k)),y:ys,mode:"lines+markers",line:{color:ACCENT,width:2.5},
+    marker:{size:5},fill:"tozeroy",fillcolor:"rgba(37,99,235,.08)",name:"Выручка"}];
+  if(F.gran==="День"){
+    const out=rows.filter(r=>r.is_outlier===1);
+    if(out.length) traces.push({x:out.map(r=>r.date),y:out.map(r=>r.revenue),mode:"markers",
+      marker:{color:RED,size:5,symbol:"x",opacity:.55},name:"Аномалия"});
+  }
+  Plotly.react("trend",traces,{...layout("Динамика продаж"),showlegend:false,
+    hovermode:"x unified",height:320,yaxis:{title:"Объём продаж, ₽"}},{displayModeBar:false});
+}
+function drawRegion(rows){
+  const m={}; rows.forEach(r=>{ m[r.region]=(m[r.region]||0)+r.revenue; });
+  const items=Object.entries(m).sort((a,b)=>a[1]-b[1]);
+  Plotly.react("region",[{type:"bar",orientation:"h",
+    x:items.map(i=>i[1]), y:items.map(i=>i[0]),
+    text:items.map(i=>fmtShort(i[1])), textposition:"outside", textfont:{size:9},
+    marker:{color:items.map(i=>i[1]),colorscale:"Blues"}
+  }],{...layout("Продажи по регионам"),coloraxis:{showscale:false},
+    xaxis:{showticklabels:false,range:[0,Math.max(...items.map(i=>i[1]),1)*1.12]},
+    yaxis:{tickfont:{size:9}},margin:{t:45,b:30,l:210,r:20},height:340},{displayModeBar:false});
+}
+function drawCategory(rows){
+  const m={}; rows.forEach(r=>{ m[r.category]=(m[r.category]||0)+r.revenue; });
+  const items=Object.entries(m).sort((a,b)=>b[1]-a[1]);
+  Plotly.react("category",[{type:"bar",
+    x:items.map(i=>CAT_SHORT[i[0]]||i[0]), y:items.map(i=>i[1]),
+    text:items.map(i=>fmtShort(i[1])), textposition:"auto", textfont:{size:11},
+    marker:{color:items.map((_,idx)=>["#4e79a7","#59a14f","#f28e2b","#e15759","#76b7b2"][idx%5])}
+  }],{...layout("Продажи по категориям"),showlegend:false,
+    yaxis:{showticklabels:false},
+    xaxis:{tickfont:{size:11}},margin:{t:45,b:30,l:50,r:20},height:300},{displayModeBar:false});
+}
+function drawHeatmap(rows){
+  const regs=[...new Set(rows.map(r=>r.region))].sort();
+  const cats=[...new Set(rows.map(r=>r.category))].sort();
+  const z=regs.map(rg=>cats.map(c=>rows.filter(r=>r.region===rg&&r.category===c).reduce((s,r)=>s+r.revenue,0)));
+  Plotly.react("heatmap",[{type:"heatmap",x:cats.map(c=>CAT_SHORT[c]||c),y:regs,z:z,
+    colorscale:"Blues",hovertemplate:"Регион: %{y}<br>Категория: %{x}<br>Продажи: %{z:,.0f}<extra></extra>"
+  }],{...layout("Продажи: регион × категория"),margin:{t:45,b:60,l:170,r:20},
+    xaxis:{tickangle:0,tickfont:{size:10}},yaxis:{tickfont:{size:8}},height:360},{displayModeBar:false});
+}
+
+function render(){
+  const from=startOfDay(F.from), to=startOfDay(F.to); to.setHours(23,59,59);
+  const cur=filterRows(from,to);
+  const len=Math.round((F.to-F.from)/86400000)+1;
+  const pe=addDays(from,-1); const ps=addDays(pe,-(len-1));
+  const prev=filterRows(startOfDay(ps), new Date(pe.getTime()+86399000));
+  renderKPIs(cur,prev);
+  drawTrend(cur); drawRegion(cur); drawCategory(cur); drawHeatmap(cur);
+}
+
+function makeChecks(id, options, set){
+  const el=document.getElementById(id);
+  el.innerHTML=options.map(v=>`<label><input type="checkbox" value="${v}"> ${v}</label>`).join("");
+  el.querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{
+    if(cb.checked) set.add(cb.value); else set.delete(cb.value);
+    render();
+  }));
+}
+makeChecks("regions",REGIONS,F.regions);
+makeChecks("categories",CATEGORIES,F.categories);
+
+const df=document.getElementById("dateFrom"), dt=document.getElementById("dateTo");
+df.min=dt.min=fmtISO(MIN_D); df.max=dt.max=fmtISO(MAX_D);
+df.value=fmtISO(addDays(MAX_D,-183)); dt.value=fmtISO(MAX_D);
+F.from=new Date(df.value); F.to=new Date(dt.value);
+[df,dt].forEach(inp=>inp.addEventListener("change",()=>{
+  F.from=new Date(df.value); F.to=new Date(dt.value); render();
+}));
+
+document.querySelectorAll("[data-preset]").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.preset==="month") F.from=addDays(MAX_D,-30);
+  else if(b.dataset.preset==="quarter") F.from=addDays(MAX_D,-90);
+  else F.from=new Date(MIN_D);
+  F.to=new Date(MAX_D);
+  df.value=fmtISO(F.from); dt.value=fmtISO(F.to); render();
+}));
+
+document.getElementById("gran").addEventListener("change",e=>{
+  if(e.target.name==="gran"){ F.gran=e.target.value; render(); }
+});
+document.getElementById("outl").addEventListener("change",e=>{
+  if(e.target.name==="outl"){ F.outliers=e.target.value; render(); }
+});
+
+document.getElementById("reset").addEventListener("click",()=>{
+  F.regions.clear();F.categories.clear();F.outliers="yes";F.gran="Месяц";
+  document.querySelectorAll(".checks input").forEach(cb=>cb.checked=false);
+  document.querySelector('input[name="gran"][value="Месяц"]').checked=true;
+  document.querySelector('input[name="outl"][value="yes"]').checked=true;
+  F.from=addDays(MAX_D,-183); F.to=new Date(MAX_D);
+  df.value=fmtISO(F.from); dt.value=fmtISO(F.to); render();
+});
+
+render();
+</script>
+</body>
+</html>
